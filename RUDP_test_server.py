@@ -1,26 +1,14 @@
 from RUDP_Socket import RUDPsocket
 
-# Create and bind the server to a local address
-server = RUDPsocket()
-server.bind(('localhost', 8080))
+class RUDPserver:
+    def __init__(self, loss_rate=0.0, corruption_rate=0.0):
+        self.server_socket = RUDPsocket(loss_rate=loss_rate, corruption_rate=corruption_rate)
 
-print("Server listening on port 8080...")
+    def bind(self, address):
+        self.server_socket.bind(address)
 
-# Wait for connection and receive data
-client_socket = server.accept()
-print("Connection established with client")
+    def accept(self):
+        return self.server_socket.accept()
 
-while True:
-    data = client_socket.receive_data()  # Receive data
-    if data:
-        print(f"Received: {data.decode()}")
-        if data.decode() == "GET / HTTP/1.0":
-            with open('web_files/test.html', 'r') as file:
-                response = file.read()
-                client_socket.send_data(response.encode())  # Send HTTP response
-        else:
-            client_socket.send_data(b"Invalid request")
-    else:
-        break
-
-server.close()
+    def close(self):
+        self.server_socket.close()

@@ -1,43 +1,60 @@
-from RUDP_Socket import RUDPsocket
-import os
+from RUDP_test_server import RUDPserver
 
-# Create and bind the server to a local address
-server = RUDPsocket()
-server.bind(('localhost', 8080))
+def main():
+    # Initialize the RUDP server
+    server = RUDPserver()
+    server.bind(('127.0.0.1', 8080))
+    print("RUDP HTTP Server listening on 127.0.0.1:8080...")
 
-print("HTTP Server listening on port 8080...")
+    # Wait for a client connection
+    client_socket = server.accept()
+    print("Client connected.")
 
-# Wait for the client to connect
-client_socket = server.accept()
-print("Connection established with client")
+    while True:
+        try:
+            data = client_socket.receive_data()
+            if not data:
+                print("No data received. Closing connection.")
+                break
 
-while True:
-    # Receive data (HTTP request)
-    data = client_socket.receive_data()
+            request_line = data.decode().split('\r\n')[0]
+            print(f"Received request: {request_line}")
 
-    if data:
-        # Process the HTTP request
-        request = data.decode().split('\r\n')[0]  # Extract request line (e.g., GET / HTTP/1.0)
-        print(f"Received request: {request}")
+            if request_line.startswith("GET"):
+                # Extract file path
+                path = request_line.split()[1]
+                if path == "/":
+                    path = "/index.html"
 
-        # Handle HTTP GET request for the root
-        if request == "GET / HTTP/1.0":
-            # Read the content of index.html
-            try:
-                with open('web_files/test.html', 'r') as file:
-                    response_content = file.read()
-                    # Send the HTTP response
-                    response = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n" + response_content
-                    client_socket.send_data(response.encode())
-            except FileNotFoundError:
-                # Handle case when the file is not found
-                response = "HTTP/1.0 404 Not Found\r\n\r\nFile not found"
-                client_socket.send_data(response.encode())
-        else:
-            # Handle invalid request
-            response = "HTTP/1.0 400 Bad Request\r\n\r\nInvalid request"
+                try:
+                    with open("web_files" + path, "r") as f:
+                        body = f.read()
+                    response = (
+                        "HTTP/1.0 200 OK\r\n"
+                        "Content-Type: text/html\r\n"
+                        f"Content-Length: {len(body)}\r\n\r\n"
+                        + body
+                    )
+                except FileNotFoundError:
+                    response = (
+                        "HTTP/1.0 404 Not Found\r\n"
+                        "Content-Type: text/plain\r\n\r\n"
+                        "File not found"
+                    )
+            else:
+                response = (
+                    "HTTP/1.0 400 Bad Request\r\n"
+                    "Content-Type: text/plain\r\n\r\n"
+                    "Invalid request"
+                )
+
             client_socket.send_data(response.encode())
-    else:
-        break
+        except Exception as e:
+            print(f"Server error: {e}")
+            break
 
-server.close()
+    client_socket.close()
+    server.close()
+
+if __name__ == "__main__":
+    main()
