@@ -1,44 +1,32 @@
+<!-- test.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Reliable UDP HTTP Server</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            line-height: 1.6;
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RUDP Test</title>
+    <script>
+        function sendMessage() {
+            let message = document.getElementById("message").value;
+            fetch("/send_message", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ message: message })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("response").textContent = "Server response: " + data.response;
+            });
         }
-        h1 {
-            color: #2c3e50;
-        }
-        .container {
-            background: #f9f9f9;
-            padding: 20px;
-            border-radius: 5px;
-            margin-top: 20px;
-        }
-    </style>
+    </script>
 </head>
 <body>
-    <h1>Welcome to the Reliable UDP HTTP Server</h1>
-    <div class="container">
-        <p>This page is being served by a custom HTTP server built on top of a reliable UDP protocol implementation.</p>
-        
-        <h2>Test Links</h2>
-        <ul>
-            <li><a href="/test.html">Test page (should 404)</a></li>
-            <li><a href="/sample.txt">Sample text file</a></li>
-        </ul>
-        
-        <h2>Project Features</h2>
-        <ul>
-            <li>TCP-like reliability over UDP</li>
-            <li>HTTP 1.0 support</li>
-            <li>GET and POST methods</li>
-            <li>Error handling</li>
-        </ul>
-    </div>
+    <h1>RUDP Communication Test</h1>
+    <label for="message">Enter Message:</label>
+    <input type="text" id="message" />
+    <button onclick="sendMessage()">Send</button>
+    <p id="response"></p>
 </body>
 </html>
