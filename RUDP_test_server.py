@@ -1,14 +1,21 @@
-from RUDP_Socket import RUDPsocket
+from pick_sim import get_simulated_socket_class
 
-class RUDPserver:
-    def __init__(self, loss_rate=0.0, corruption_rate=0.0):
-        self.server_socket = RUDPsocket(loss_rate=loss_rate, corruption_rate=corruption_rate)
+def main():
+    ServerSocketClass = get_simulated_socket_class()
+    server = ServerSocketClass()
+    server.bind(('0.0.0.0', 8080))
+    print("Server is listening...")
 
-    def bind(self, address):
-        self.server_socket.bind(address)
+    try:
+        data = server.recv_data()
+        print("Received from client:", data.decode())
 
-    def accept(self):
-        return self.server_socket.accept()
+        response = b"Hello from server!"
+        server.send_data(response)
+    except Exception as e:
+        print(f"Server error: {e}")
+    finally:
+        server.close()
 
-    def close(self):
-        self.server_socket.close()
+if __name__ == "__main__":
+    main()

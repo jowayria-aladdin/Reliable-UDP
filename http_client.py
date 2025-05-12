@@ -1,29 +1,24 @@
-from RUDP_test_client import RUDPclient  # Assuming the class is still named RUDPclient inside RUDP_test_client
+from pick_sim import get_simulated_socket_class
 
 def main():
-    # Create RUDP client with simulated loss and corruption (optional)
-    client = RUDPclient(loss_rate=0.1, corruption_rate=0.05)
+    ClientSocketClass = get_simulated_socket_class()
+    client = ClientSocketClass()
+    client.connect(('127.0.0.1', 8080))
+    print("Connected to HTTP server.")
 
-    # Connect to the RUDP server
-    server_address = ('127.0.0.1', 8080)
-    print(f"Connecting to server at {server_address}...")
-    client.connect(server_address)
-
-    # Send an HTTP GET request over RUDP
-    http_request = b"GET /index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+    http_request = (
+        "GET / HTTP/1.1\r\n"
+        "Host: 127.0.0.1\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    )
     print("Sending HTTP request...")
-    client.send_data(http_request)
+    client.send_data(http_request.encode())
 
-    # Receive the HTTP response
-    print("Waiting for response from server...")
-    try:
-        response = client.receive_data()
-        print("Received HTTP response:\n")
-        print(response.decode())
-    except Exception as e:
-        print(f"Error receiving response: {e}")
+    print("Waiting for HTTP response...")
+    response = client.recv_data()
+    print("Received response:\n", response.decode())
 
-    # Close the RUDP connection
     client.close()
 
 if __name__ == "__main__":

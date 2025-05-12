@@ -1,59 +1,41 @@
-from RUDP_test_server import RUDPserver
+from pick_sim import get_simulated_socket_class
 
 def main():
-    # Initialize the RUDP server
-    server = RUDPserver()
-    server.bind(('127.0.0.1', 8080))
-    print("RUDP HTTP Server listening on 127.0.0.1:8080...")
-
-    # Wait for a client connection
-    client_socket = server.accept()
-    print("Client connected.")
+    ServerSocketClass = get_simulated_socket_class()
+    server = ServerSocketClass()
+    server.bind(('0.0.0.0', 8080))
+    print("HTTP server listening on port 8080...")
 
     while True:
         try:
-            data = client_socket.receive_data()
+            print("Waiting for a connection...")
+            data = server.recv_data()
             if not data:
-                print("No data received. Closing connection.")
-                break
+                continue
 
-            request_line = data.decode().split('\r\n')[0]
-            print(f"Received request: {request_line}")
+            request = data.decode()
+            print("Received HTTP request:\n", request)
 
-            if request_line.startswith("GET"):
-                # Extract file path
-                path = request_line.split()[1]
-                if path == "/":
-                    path = "/index.html"
-
-                try:
-                    with open("web_files" + path, "r") as f:
-                        body = f.read()
-                    response = (
-                        "HTTP/1.0 200 OK\r\n"
-                        "Content-Type: text/html\r\n"
-                        f"Content-Length: {len(body)}\r\n\r\n"
-                        + body
-                    )
-                except FileNotFoundError:
-                    response = (
-                        "HTTP/1.0 404 Not Found\r\n"
-                        "Content-Type: text/plain\r\n\r\n"
-                        "File not found"
-                    )
+            if request.startswith("GET"):
+                response = (
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: 13\r\n"
+                    "\r\n"
+                    "Hello, world!"
+                )
             else:
                 response = (
-                    "HTTP/1.0 400 Bad Request\r\n"
-                    "Content-Type: text/plain\r\n\r\n"
-                    "Invalid request"
+                    "HTTP/1.1 400 Bad Request\r\n"
+                    "Content-Length: 0\r\n"
+                    "\r\n"
                 )
 
-            client_socket.send_data(response.encode())
+            server.send_data(response.encode())
         except Exception as e:
-            print(f"Server error: {e}")
+            print(f"Error: {e}")
             break
 
-    client_socket.close()
     server.close()
 
 if __name__ == "__main__":
