@@ -1,25 +1,18 @@
-from pick_sim import get_simulated_socket_class
+import subprocess
+import time
+from pick_sim import pick_mode  # Import the pick_mode function
 
 def main():
-    ClientSocketClass = get_simulated_socket_class()
-    client = ClientSocketClass()
-    client.connect(('127.0.0.1', 8080))
-    print("Connected to HTTP server.")
+    # Run the pick_mode function to select simulation mode
+    pick_mode()
 
-    http_request = (
-        "GET / HTTP/1.1\r\n"
-        "Host: 127.0.0.1\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-    )
-    print("Sending HTTP request...")
-    client.send_data(http_request.encode())
+    # Wait for the server to be ready (adjust the wait time if needed)
+    time.sleep(2)  # You can adjust the wait time if needed
+    
+    print("[+] Starting client...")
 
-    print("Waiting for HTTP response...")
-    response = client.recv_data()
-    print("Received response:\n", response.decode())
-
-    client.close()
+    # Run the client with the correct simulation mode set by pick_sim
+    subprocess.run(["python", "RUDP_test_client.py"])
 
 if __name__ == "__main__":
     main()
