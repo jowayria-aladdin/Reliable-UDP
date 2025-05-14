@@ -1,5 +1,5 @@
 # RUDP_test_server.py (generated from template)
-from RUDPsocket_clean import RUDPsocket as RUDPsocket
+from {{RUDP_MODULE}} import RUDPsocket as RUDPsocket
 
 def main():
     server = RUDPsocket()

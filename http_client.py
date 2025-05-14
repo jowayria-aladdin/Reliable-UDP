@@ -1,30 +1,18 @@
-from RUDP_test_client import RUDPclient  # Assuming the class is still named RUDPclient inside RUDP_test_client
+import subprocess
+import time
+from pick_sim import pick_mode  # Import the pick_mode function
 
 def main():
-    # Create RUDP client with simulated loss and corruption (optional)
-    client = RUDPclient(loss_rate=0.1, corruption_rate=0.05)
+    # Run the pick_mode function to select simulation mode
+    pick_mode()
 
-    # Connect to the RUDP server
-    server_address = ('127.0.0.1', 8080)
-    print(f"Connecting to server at {server_address}...")
-    client.connect(server_address)
+    # Wait for the server to be ready (adjust the wait time if needed)
+    time.sleep(2)  # You can adjust the wait time if needed
+    
+    print("[+] Starting client...")
 
-    # Send an HTTP GET request over RUDP
-    http_request = b"GET /index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
-    print("Sending HTTP request...")
-    client.send_data(http_request)
-
-    # Receive the HTTP response
-    print("Waiting for response from server...")
-    try:
-        response = client.receive_data()
-        print("Received HTTP response:\n")
-        print(response.decode())
-    except Exception as e:
-        print(f"Error receiving response: {e}")
-
-    # Close the RUDP connection
-    client.close()
+    # Run the client with the correct simulation mode set by pick_sim
+    subprocess.run(["python", "RUDP_test_client.py"])
 
 if __name__ == "__main__":
     main()
