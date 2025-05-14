@@ -1,14 +1,8 @@
-import subprocess
-from pick_sim import pick_mode
+from pick_sim import get_simulated_socket_class
 
 def main():
-    # Call the pick_mode() function to set up the simulation mode
-    pick_mode()
-
-    # The server will now use the selected RUDP socket class from pick_sim.py
-    from RUDP_test_server import RUDPsocket  # This will import the RUDPsocket from the selected simulation module
-    
-    server = RUDPsocket()
+    ServerSocketClass = get_simulated_socket_class()
+    server = ServerSocketClass()
     server.bind(('0.0.0.0', 8080))
     print("HTTP server listening on port 8080...")
 
