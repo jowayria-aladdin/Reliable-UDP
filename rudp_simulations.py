@@ -59,8 +59,11 @@ class CorruptRUDPSocket(CleanRUDPSocket):
 
     def send(self, sock, data, address, seq=0):
         packet = self.pack(seq, data)
-        packet = self.maybe_corrupt(packet)
-        sock.sendto(packet, address)
+        header, payload = packet[:8], packet[8:]
+        corrupted_payload = self.maybe_corrupt(payload)
+        corrupted_packet = header + corrupted_payload
+        sock.sendto(corrupted_packet, address)
+
 
 # -- LOSS + CORRUPT --
 

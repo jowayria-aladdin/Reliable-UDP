@@ -1,4 +1,5 @@
 import socket
+import zlib
 import struct
 from rudp_socket import rudp_socket
 
@@ -55,8 +56,15 @@ class HTTPRUDPClient:
             try:
                 response_data, _ = self.sock.recvfrom(4096)
                 if len(response_data) >= 8:
-                    http_payload = response_data[8:]  # Strip SEQ + CRC
-                    print(f"[CLIENT] HTTP Response #{seq + 1}:\n{http_payload.decode('utf-8', errors='replace')}")
+                    seq_recv = int.from_bytes(response_data[:4], 'big')
+                    recv_checksum = int.from_bytes(response_data[4:8], 'big')
+                    payload = response_data[8:]
+                    calc_checksum = zlib.crc32(payload)
+
+                    if recv_checksum != calc_checksum:
+                        print(f"[CLIENT] Corrupted HTTP response detected for request #{seq + 1} (SEQ {seq_recv})")
+                    else:
+                        print(f"[CLIENT] HTTP Response #{seq + 1}:\n{payload.decode('utf-8', errors='replace')}")
                 else:
                     print(f"[CLIENT] HTTP Response #{seq + 1}: [invalid or too short]")
             except socket.timeout:
