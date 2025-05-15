@@ -1,77 +1,94 @@
 import socket
-import zlib
-import struct
-from rudp_socket import rudp_socket
+import time
+from rudp_socket import rudp_socket, SYN, ACK, FIN
 
-ACK_FORMAT = "!I"  # Format for unpacking the sequence number from ACK
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 TIMEOUT = 2.0
 
 class HTTPRUDPClient:
     def __init__(self, host='localhost', port=8080):
         self.rudp = rudp_socket
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.server_address = (host, port)
         self.sock.settimeout(TIMEOUT)
+        self.server_address = (host, port)
+        self.seq = 0
+        self.connected = False
 
-    def send_request(self, count=3):
-        request = (
-            "GET / HTTP/1.1\r\n"
-            "Host: localhost\r\n"
-            "Connection: close\r\n"
-            "\r\n"
-        ).encode()
+    def send_packet(self, data=b"", flags=0):
+        self.rudp.send(self.sock, data, self.server_address, seq=self.seq, flags=flags)
 
-        for seq in range(count):
-            success = False
-            for attempt in range(1, MAX_RETRIES + 1):
-                print(f"[CLIENT] Sending request #{seq + 1}, attempt {attempt}")
-                self.rudp.send(self.sock, request, self.server_address, seq=seq)
+    def recv_packet(self):
+        return self.rudp.recv(self.sock)
 
-                try:
-                    ack_data, _ = self.sock.recvfrom(1024)
-
-                    if ack_data.startswith(b"ACK") and len(ack_data) >= 7:
-                        ack_seq = struct.unpack(ACK_FORMAT, ack_data[3:7])[0]
-                        if ack_seq == seq:
-                            print(f"[CLIENT] ACK received for request #{seq + 1}")
-                            success = True
-                            break
-                        else:
-                            print(f"[CLIENT] Wrong ACK SEQ: got {ack_seq}, expected {seq}")
-                    else:
-                        print(f"[CLIENT] Received non-ACK or malformed message (ignored)")
-
-                except socket.timeout:
-                    print(f"[CLIENT] Timeout waiting for ACK (request #{seq + 1})")
-                except ConnectionResetError:
-                    print(f"[CLIENT] Connection reset by server on request #{seq + 1}")
-                except Exception as e:
-                    print(f"[CLIENT] Unexpected error on request #{seq + 1}: {e}")
-
-            if not success:
-                print(f"[CLIENT] Failed to deliver request #{seq + 1} after {MAX_RETRIES} attempts")
-                continue
-
+    def handshake(self):
+        print("[CLIENT] Starting handshake")
+        for attempt in range(MAX_RETRIES):
+            self.send_packet(flags=SYN)
             try:
-                response_data, _ = self.sock.recvfrom(4096)
-                if len(response_data) >= 8:
-                    seq_recv = int.from_bytes(response_data[:4], 'big')
-                    recv_checksum = int.from_bytes(response_data[4:8], 'big')
-                    payload = response_data[8:]
-                    calc_checksum = zlib.crc32(payload)
-
-                    if recv_checksum != calc_checksum:
-                        print(f"[CLIENT] Corrupted HTTP response detected for request #{seq + 1} (SEQ {seq_recv})")
-                    else:
-                        print(f"[CLIENT] HTTP Response #{seq + 1}:\n{payload.decode('utf-8', errors='replace')}")
-                else:
-                    print(f"[CLIENT] HTTP Response #{seq + 1}: [invalid or too short]")
+                seq, flags, payload, valid, addr = self.recv_packet()
+                if valid and (flags & SYN) and (flags & ACK):
+                    print("[CLIENT] Received SYN+ACK")
+                    self.seq += 1
+                    self.send_packet(flags=ACK)
+                    self.connected = True
+                    return True
             except socket.timeout:
-                print(f"[CLIENT] Timeout waiting for HTTP response for request #{seq + 1}")
-            except Exception as e:
-                print(f"[CLIENT] Error receiving HTTP response for request #{seq + 1}: {e}")
+                print(f"[CLIENT] Handshake attempt {attempt + 1} timed out.")
+        print("[CLIENT] Handshake failed")
+        return False
+
+    def teardown(self):
+        if not self.connected:
+            return
+        print("[CLIENT] Sending FIN")
+        for attempt in range(MAX_RETRIES):
+            self.send_packet(flags=FIN)
+            try:
+                seq, flags, payload, valid, addr = self.recv_packet()
+                if valid and (flags & ACK):
+                    print("[CLIENT] Received ACK for FIN, connection closed")
+                    self.connected = False
+                    return
+            except socket.timeout:
+                print(f"[CLIENT] FIN attempt {attempt + 1} timed out.")
+        print("[CLIENT] FIN handshake failed")
+
+    def send_http_request(self, method="GET", path="/", headers=None, body=""):
+        if not self.connected:
+            if not self.handshake():
+                return
+
+        if headers is None:
+            headers = {}
+        headers["Connection"] = "close"
+
+        # Build HTTP request text
+        request_line = f"{method} {path} HTTP/1.0\r\n"
+        headers_lines = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
+        http_request = request_line + headers_lines + "\r\n" + body
+
+        # Send HTTP request
+        print(f"[CLIENT] Sending HTTP {method} request")
+        self.send_packet(data=http_request.encode('utf-8'), flags=0)
+
+        # Wait for response (stop-and-wait)
+        try:
+            seq, flags, payload, valid, addr = self.recv_packet()
+            if not valid:
+                print("[CLIENT] Received corrupted HTTP response.")
+                return
+            response_text = payload.decode('utf-8', errors='replace')
+            print("[CLIENT] HTTP Response received:\n" + response_text)
+        except socket.timeout:
+            print("[CLIENT] Timeout waiting for HTTP response.")
+
+        self.teardown()
 
 if __name__ == "__main__":
     client = HTTPRUDPClient()
-    client.send_request(count=3)
+
+    # Example: send GET request
+    client.send_http_request(method="GET", path="/")
+
+    # Example: send POST request
+    # client.send_http_request(method="POST", path="/submit", headers={"Content-Type": "text/plain"}, body="Hello Server")

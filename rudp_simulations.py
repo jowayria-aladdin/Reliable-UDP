@@ -2,36 +2,38 @@ import random
 import zlib
 import struct
 
-class BaseRUDP:
-    HEADER_FORMAT = "!I"  # Unsigned int for SEQ number
+# Define flags as bits
+SYN = 0b0001
+ACK = 0b0010
+FIN = 0b0100
 
-    def pack(self, seq, payload):
+class BaseRUDP:
+    # Packet format: SEQ (4 bytes), FLAGS (1 byte), CHECKSUM (4 bytes), PAYLOAD (variable)
+    HEADER_FORMAT = "!IBI"  # SEQ (4), FLAGS (1), CHECKSUM (4)
+
+    def pack(self, seq, flags, payload):
         checksum = zlib.crc32(payload)
-        return struct.pack(self.HEADER_FORMAT, seq) + checksum.to_bytes(4, 'big') + payload
+        header = struct.pack(self.HEADER_FORMAT, seq, flags, checksum)
+        return header + payload
 
     def unpack(self, packet):
-        if len(packet) < 8:
-            return None, None, None
-        seq = struct.unpack(self.HEADER_FORMAT, packet[:4])[0]
-        recv_checksum = int.from_bytes(packet[4:8], 'big')
-        payload = packet[8:]
+        if len(packet) < 9:
+            return None, None, None, None, False
+        seq, flags, recv_checksum = struct.unpack(self.HEADER_FORMAT, packet[:9])
+        payload = packet[9:]
         calc_checksum = zlib.crc32(payload)
-        if recv_checksum != calc_checksum:
-            return seq, payload, False
-        return seq, payload, True
-
-# -- CLEAN --
+        valid = (recv_checksum == calc_checksum)
+        return seq, flags, recv_checksum, payload, valid
 
 class CleanRUDPSocket(BaseRUDP):
-    def send(self, sock, data, address, seq=0):
-        packet = self.pack(seq, data)
+    def send(self, sock, data, address, seq=0, flags=0):
+        packet = self.pack(seq, flags, data)
         sock.sendto(packet, address)
 
     def recv(self, sock):
         packet, addr = sock.recvfrom(4096)
-        return self.unpack(packet) + (addr,)
-
-# -- LOSS --
+        seq, flags, checksum, payload, valid = self.unpack(packet)
+        return seq, flags, payload, valid, addr
 
 class LossRUDPSocket(CleanRUDPSocket):
     def __init__(self, drop_rate=0.3):
@@ -40,13 +42,11 @@ class LossRUDPSocket(CleanRUDPSocket):
     def maybe_drop(self):
         return random.random() < self.drop_rate
 
-    def send(self, sock, data, address, seq=0):
+    def send(self, sock, data, address, seq=0, flags=0):
         if self.maybe_drop():
             print("[LOSS] Packet dropped")
             return
-        super().send(sock, data, address, seq)
-
-# -- CORRUPT --
+        super().send(sock, data, address, seq, flags)
 
 class CorruptRUDPSocket(CleanRUDPSocket):
     def __init__(self, corrupt_rate=0.3):
@@ -57,15 +57,12 @@ class CorruptRUDPSocket(CleanRUDPSocket):
             return bytes([b ^ 0xFF for b in data])
         return data
 
-    def send(self, sock, data, address, seq=0):
-        packet = self.pack(seq, data)
-        header, payload = packet[:8], packet[8:]
+    def send(self, sock, data, address, seq=0, flags=0):
+        packet = self.pack(seq, flags, data)
+        header, payload = packet[:9], packet[9:]
         corrupted_payload = self.maybe_corrupt(payload)
         corrupted_packet = header + corrupted_payload
         sock.sendto(corrupted_packet, address)
-
-
-# -- LOSS + CORRUPT --
 
 class LossCorruptRUDPSocket(BaseRUDP):
     def __init__(self, drop_rate=0.3, corrupt_rate=0.3):
@@ -80,14 +77,17 @@ class LossCorruptRUDPSocket(BaseRUDP):
             return bytes([b ^ 0xFF for b in data])
         return data
 
-    def send(self, sock, data, address, seq=0):
+    def send(self, sock, data, address, seq=0, flags=0):
         if self.maybe_drop():
             print("[LOSS+CORRUPT] Packet dropped")
             return
-        packet = self.pack(seq, data)
-        packet = self.maybe_corrupt(packet)
-        sock.sendto(packet, address)
+        packet = self.pack(seq, flags, data)
+        header, payload = packet[:9], packet[9:]
+        corrupted_payload = self.maybe_corrupt(payload)
+        corrupted_packet = header + corrupted_payload
+        sock.sendto(corrupted_packet, address)
 
     def recv(self, sock):
         packet, addr = sock.recvfrom(4096)
-        return self.unpack(packet) + (addr,)
+        seq, flags, checksum, payload, valid = self.unpack(packet)
+        return seq, flags, payload, valid, addr

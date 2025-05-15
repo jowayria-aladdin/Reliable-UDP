@@ -1,61 +1,127 @@
 import socket
-import struct
-from rudp_socket import rudp_socket
-
-ACK_FORMAT = "!I"  # Format for ACK sequence numbers
+from rudp_socket import rudp_socket, SYN, ACK, FIN
 
 class HTTPRUDPServer:
     def __init__(self, host='localhost', port=8080):
         self.rudp = rudp_socket
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((host, port))
-        self.processed_seqs = set()  # Track SEQ numbers to avoid reprocessing duplicates
+        # Track sessions: addr -> state info
+        self.sessions = {}
 
-    def serve_loop(self, count=3):
-        for _ in range(count):
-            print("[SERVER] Waiting for HTTP request...")
+    def send_packet(self, data, addr, seq=0, flags=0):
+        self.rudp.send(self.sock, data, addr, seq=seq, flags=flags)
+
+    def parse_http_request(self, data):
+        try:
+            text = data.decode('utf-8')
+            lines = text.split('\r\n')
+            request_line = lines[0].split()
+            method = request_line[0]
+            path = request_line[1]
+            headers = {}
+            i = 1
+            while i < len(lines) and lines[i]:
+                if ':' in lines[i]:
+                    key, val = lines[i].split(':', 1)
+                    headers[key.strip().lower()] = val.strip()
+                i += 1
+            body = '\r\n'.join(lines[i+1:]) if i+1 < len(lines) else ""
+            return method, path, headers, body
+        except Exception:
+            return None, None, {}, ""
+
+    def build_http_response(self, status_code=200, body="", headers=None):
+        reason = {200: "OK", 404: "Not Found"}.get(status_code, "OK")
+        if headers is None:
+            headers = {}
+        headers_text = "".join(f"{k}: {v}\r\n" for k,v in headers.items())
+        response = f"HTTP/1.0 {status_code} {reason}\r\n{headers_text}\r\n{body}"
+        return response.encode('utf-8')
+
+    def serve_loop(self):
+        print("[SERVER] Listening for connections...")
+        while True:
             try:
-                seq, data, valid, addr = self.rudp.recv(self.sock)
+                seq, flags, payload, valid, addr = self.rudp.recv(self.sock)
             except Exception as e:
                 print("[SERVER] Error receiving packet:", e)
                 continue
 
             if not valid:
-                print("[SERVER] Packet corrupted — ignoring.")
+                print(f"[SERVER] Dropped corrupted packet from {addr}")
                 continue
 
-            if seq in self.processed_seqs:
-                print(f"[SERVER] Duplicate SEQ #{seq} received — resending ACK only.")
-                ack_packet = b"ACK" + struct.pack(ACK_FORMAT, seq)
-                self.sock.sendto(ack_packet, addr)
+            session = self.sessions.get(addr, {"state": "CLOSED", "expected_seq": 0})
+
+            # Handle connection states
+            if flags & SYN:
+                # Start handshake
+                print(f"[SERVER] SYN received from {addr}")
+                self.send_packet(b"", addr, seq=0, flags=SYN | ACK)
+                session["state"] = "SYN_RECEIVED"
+                session["expected_seq"] = seq + 1
+                self.sessions[addr] = session
                 continue
 
-            try:
-                request = data.decode("utf-8")
-                print("[SERVER] Received HTTP request:\n", request)
+            if session["state"] == "SYN_RECEIVED" and flags & ACK:
+                print(f"[SERVER] Connection established with {addr}")
+                session["state"] = "ESTABLISHED"
+                self.sessions[addr] = session
+                continue
 
-                response = (
-                    "HTTP/1.1 200 OK\r\n"
-                    "Content-Type: text/html\r\n"
-                    "Content-Length: 38\r\n"
-                    "\r\n"
-                    "<h1>Hello from RUDP HTTP Server!</h1>"
-                ).encode()
+            if session["state"] == "ESTABLISHED":
+                if seq != session["expected_seq"]:
+                    print(f"[SERVER] Unexpected SEQ {seq} from {addr}, expected {session['expected_seq']}")
+                    # Ignore or resend ACK for last received seq to prompt resend
+                    self.send_packet(b"", addr, seq=0, flags=ACK)
+                    continue
 
-            except UnicodeDecodeError:
-                print("[SERVER] Request could not be decoded — skipping HTTP response.")
-                response = None
+                session["expected_seq"] += 1
+                self.sessions[addr] = session
 
-            ack_packet = b"ACK" + struct.pack(ACK_FORMAT, seq)
-            self.sock.sendto(ack_packet, addr)
-            print(f"[SERVER] ACK sent for SEQ #{seq}")
+                # Handle FIN for teardown
+                if flags & FIN:
+                    print(f"[SERVER] FIN received from {addr}")
+                    self.send_packet(b"", addr, seq=seq+1, flags=ACK)
+                    print(f"[SERVER] Connection closed with {addr}")
+                    del self.sessions[addr]
+                    continue
 
-            if response:
-                self.rudp.send(self.sock, response, addr, seq=seq)
-                print("[SERVER] Response sent.")
+                # Process HTTP request
+                method, path, headers, body = self.parse_http_request(payload)
+                if not method:
+                    # Bad request; respond 404
+                    response = self.build_http_response(404, "Not Found")
+                else:
+                    print(f"[SERVER] {method} request for {path} from {addr}")
+                    if method.upper() == "GET":
+                        if path == "/":
+                            response_body = "<h1>Hello from RUDP HTTP Server!</h1>"
+                            headers_resp = {
+                                "Content-Type": "text/html",
+                                "Content-Length": str(len(response_body))
+                            }
+                            response = self.build_http_response(200, response_body, headers_resp)
+                        else:
+                            response = self.build_http_response(404, "Not Found")
+                    elif method.upper() == "POST":
+                        # Echo body for demo
+                        response_body = f"Received POST data: {body}"
+                        headers_resp = {
+                            "Content-Type": "text/plain",
+                            "Content-Length": str(len(response_body))
+                        }
+                        response = self.build_http_response(200, response_body, headers_resp)
+                    else:
+                        response = self.build_http_response(404, "Not Found")
 
-            self.processed_seqs.add(seq)
+                self.send_packet(response, addr, seq=seq+1, flags=ACK)
+                continue
+
+            # If no session and no SYN, ignore packet
+            print(f"[SERVER] Ignoring packet from {addr} in state {session['state']}")
 
 if __name__ == "__main__":
     server = HTTPRUDPServer()
-    server.serve_loop(count=10)
+    server.serve_loop()
