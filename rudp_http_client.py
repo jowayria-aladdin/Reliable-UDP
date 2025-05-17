@@ -68,19 +68,24 @@ class HTTPRUDPClient:
         http_request = request_line + headers_lines + "\r\n" + body
 
         # Send HTTP request
-        print(f"[CLIENT] Sending HTTP {method} request")
-        self.send_packet(data=http_request.encode('utf-8'), flags=0)
+        print(f"[CLIENT] Sending HTTP {method} request with retransmission")
+        http_data = http_request.encode('utf-8')
 
-        # Wait for response (stop-and-wait)
-        try:
-            seq, flags, payload, valid, addr = self.recv_packet()
-            if not valid:
-                print("[CLIENT] Received corrupted HTTP response.")
-                return
-            response_text = payload.decode('utf-8', errors='replace')
-            print("[CLIENT] HTTP Response received:\n" + response_text)
-        except socket.timeout:
-            print("[CLIENT] Timeout waiting for HTTP response.")
+        for attempt in range(MAX_RETRIES):
+            self.send_packet(data=http_data, flags=0)
+            try:
+                seq, flags, payload, valid, addr = self.recv_packet()
+                if valid:
+                    response_text = payload.decode('utf-8', errors='replace')
+                    print("[CLIENT] HTTP Response received:\n" + response_text)
+                    break
+                else:
+                    print(f"[CLIENT] Received corrupted HTTP response. Retrying...")
+            except socket.timeout:
+                print(f"[CLIENT] Timeout waiting for response (attempt {attempt + 1})")
+        else:
+            print("[CLIENT] Failed to receive HTTP response after retries.")
+
 
         self.teardown()
 

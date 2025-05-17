@@ -71,22 +71,19 @@ class HTTPRUDPServer:
                 continue
 
             if session["state"] == "ESTABLISHED":
-                if seq != session["expected_seq"]:
-                    print(f"[SERVER] Unexpected SEQ {seq} from {addr}, expected {session['expected_seq']}")
-                    # Ignore or resend ACK for last received seq to prompt resend
-                    self.send_packet(b"", addr, seq=0, flags=ACK)
-                    continue
-
-                session["expected_seq"] += 1
-                self.sessions[addr] = session
-
-                # Handle FIN for teardown
+                # Handle FIN for teardown before checking sequence
                 if flags & FIN:
                     print(f"[SERVER] FIN received from {addr}")
-                    self.send_packet(b"", addr, seq=seq+1, flags=ACK)
+                    self.send_packet(b"", addr, seq=seq + 1, flags=ACK)
                     print(f"[SERVER] Connection closed with {addr}")
                     del self.sessions[addr]
                     continue
+
+                if seq != session["expected_seq"]:
+                    print(f"[SERVER] Unexpected SEQ {seq} from {addr}, expected {session['expected_seq']}")
+                    self.send_packet(b"", addr, seq=0, flags=ACK)
+                    continue
+
 
                 # Process HTTP request
                 method, path, headers, body = self.parse_http_request(payload)
