@@ -8,8 +8,7 @@ ACK = 0b0010
 FIN = 0b0100
 
 class BaseRUDP:
-    # Packet format: SEQ (4 bytes), FLAGS (1 byte), CHECKSUM (4 bytes), PAYLOAD (variable)
-    HEADER_FORMAT = "!IBI"  # SEQ (4), FLAGS (1), CHECKSUM (4)
+    HEADER_FORMAT = "!IBI"  # SEQ (4 bytes), FLAGS (1 byte), CHECKSUM (4 bytes)
 
     def pack(self, seq, flags, payload):
         checksum = zlib.crc32(payload)

@@ -1,5 +1,6 @@
 import socket
 import time
+import sys
 from rudp_socket import rudp_socket, SYN, ACK, FIN
 
 MAX_RETRIES = 5
@@ -40,18 +41,33 @@ class HTTPRUDPClient:
     def teardown(self):
         if not self.connected:
             return
+
         print("[CLIENT] Sending FIN")
+        self.send_packet(flags=FIN)
+
+        ack_received = False
         for attempt in range(MAX_RETRIES):
-            self.send_packet(flags=FIN)
             try:
                 seq, flags, payload, valid, addr = self.recv_packet()
-                if valid and (flags & ACK):
-                    print("[CLIENT] Received ACK for FIN, connection closed")
+                if not valid:
+                    continue
+
+                if (flags & ACK) and not ack_received:
+                    print("[CLIENT] Received ACK for our FIN")
+                    ack_received = True
+                    continue
+
+                if (flags & FIN) and ack_received:
+                    print("[CLIENT] Received FIN from server")
+                    self.send_packet(flags=ACK)
+                    print("[CLIENT] Sent final ACK. Connection closed.")
                     self.connected = False
                     return
             except socket.timeout:
-                print(f"[CLIENT] FIN attempt {attempt + 1} timed out.")
-        print("[CLIENT] FIN handshake failed")
+                print(f"[CLIENT] Timeout during teardown (attempt {attempt + 1}), resending FIN")
+                self.send_packet(flags=FIN)
+
+        print("[CLIENT] Teardown failed after retries.")
 
     def send_http_request(self, method="GET", path="/", headers=None, body=""):
         if not self.connected:
@@ -62,15 +78,12 @@ class HTTPRUDPClient:
             headers = {}
         headers["Connection"] = "close"
 
-        # Build HTTP request text
         request_line = f"{method} {path} HTTP/1.0\r\n"
         headers_lines = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
         http_request = request_line + headers_lines + "\r\n" + body
-
-        # Send HTTP request
-        print(f"[CLIENT] Sending HTTP {method} request with retransmission")
         http_data = http_request.encode('utf-8')
 
+        print(f"[CLIENT] Sending HTTP {method} request with retransmission")
         for attempt in range(MAX_RETRIES):
             self.send_packet(data=http_data, flags=0)
             try:
@@ -80,20 +93,15 @@ class HTTPRUDPClient:
                     print("[CLIENT] HTTP Response received:\n" + response_text)
                     break
                 else:
-                    print(f"[CLIENT] Received corrupted HTTP response. Retrying...")
+                    print("[CLIENT] Received corrupted HTTP response. Retrying...")
             except socket.timeout:
                 print(f"[CLIENT] Timeout waiting for response (attempt {attempt + 1})")
         else:
             print("[CLIENT] Failed to receive HTTP response after retries.")
 
-
         self.teardown()
 
 if __name__ == "__main__":
-    client = HTTPRUDPClient()
-
-    # Example: send GET request
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    client = HTTPRUDPClient(port=port)
     client.send_http_request(method="GET", path="/")
-
-    # Example: send POST request
-    # client.send_http_request(method="POST", path="/submit", headers={"Content-Type": "text/plain"}, body="Hello Server")

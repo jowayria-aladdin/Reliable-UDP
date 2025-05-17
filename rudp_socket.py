@@ -56,13 +56,13 @@ def choose_simulation():
 
 def create_socket_from_config(config):
     if config["type"] == "2":
-        return LossRUDPSocket(drop_rate=config["drop_rate"])
+        return LossRUDPSocket(drop_rate=config.get("drop_rate", 0.3))
     elif config["type"] == "3":
-        return CorruptRUDPSocket(corrupt_rate=config["corrupt_rate"])
+        return CorruptRUDPSocket(corrupt_rate=config.get("corrupt_rate", 0.3))
     elif config["type"] == "4":
         return LossCorruptRUDPSocket(
-            drop_rate=config["drop_rate"],
-            corrupt_rate=config["corrupt_rate"]
+            drop_rate=config.get("drop_rate", 0.3),
+            corrupt_rate=config.get("corrupt_rate", 0.3)
         )
     else:
         return CleanRUDPSocket()
@@ -72,4 +72,5 @@ try:
     from rudp_config import config
     rudp_socket = create_socket_from_config(config)
 except (ImportError, FileNotFoundError, AttributeError):
+    print("[RUDP CONFIG] No saved config found. Prompting user for simulation setup...")
     rudp_socket = choose_simulation()

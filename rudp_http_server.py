@@ -1,4 +1,5 @@
 import socket
+import sys
 from rudp_socket import rudp_socket, SYN, ACK, FIN
 
 class HTTPRUDPServer:
@@ -6,7 +7,6 @@ class HTTPRUDPServer:
         self.rudp = rudp_socket
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((host, port))
-        # Track sessions: addr -> state info
         self.sessions = {}
 
     def send_packet(self, data, addr, seq=0, flags=0):
@@ -35,7 +35,7 @@ class HTTPRUDPServer:
         reason = {200: "OK", 404: "Not Found"}.get(status_code, "OK")
         if headers is None:
             headers = {}
-        headers_text = "".join(f"{k}: {v}\r\n" for k,v in headers.items())
+        headers_text = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
         response = f"HTTP/1.0 {status_code} {reason}\r\n{headers_text}\r\n{body}"
         return response.encode('utf-8')
 
@@ -49,14 +49,11 @@ class HTTPRUDPServer:
                 continue
 
             if not valid:
-                print(f"[SERVER] Dropped corrupted packet from {addr}")
                 continue
 
             session = self.sessions.get(addr, {"state": "CLOSED", "expected_seq": 0})
 
-            # Handle connection states
             if flags & SYN:
-                # Start handshake
                 print(f"[SERVER] SYN received from {addr}")
                 self.send_packet(b"", addr, seq=0, flags=SYN | ACK)
                 session["state"] = "SYN_RECEIVED"
@@ -71,24 +68,24 @@ class HTTPRUDPServer:
                 continue
 
             if session["state"] == "ESTABLISHED":
-                # Handle FIN for teardown before checking sequence
                 if flags & FIN:
                     print(f"[SERVER] FIN received from {addr}")
-                    self.send_packet(b"", addr, seq=seq + 1, flags=ACK)
-                    print(f"[SERVER] Connection closed with {addr}")
-                    del self.sessions[addr]
+                    self.send_packet(b"", addr, seq=session["expected_seq"], flags=ACK)
+                    session["expected_seq"] += 1
+                    session["state"] = "CLOSE_WAIT"
+                    self.sessions[addr] = session
+                    self.send_packet(b"", addr, seq=session["expected_seq"], flags=FIN)
+                    session["state"] = "LAST_ACK"
+                    self.sessions[addr] = session
                     continue
 
                 if seq != session["expected_seq"]:
                     print(f"[SERVER] Unexpected SEQ {seq} from {addr}, expected {session['expected_seq']}")
-                    self.send_packet(b"", addr, seq=0, flags=ACK)
+                    self.send_packet(b"", addr, seq=session["expected_seq"] - 1, flags=ACK)
                     continue
 
-
-                # Process HTTP request
                 method, path, headers, body = self.parse_http_request(payload)
                 if not method:
-                    # Bad request; respond 404
                     response = self.build_http_response(404, "Not Found")
                 else:
                     print(f"[SERVER] {method} request for {path} from {addr}")
@@ -103,7 +100,6 @@ class HTTPRUDPServer:
                         else:
                             response = self.build_http_response(404, "Not Found")
                     elif method.upper() == "POST":
-                        # Echo body for demo
                         response_body = f"Received POST data: {body}"
                         headers_resp = {
                             "Content-Type": "text/plain",
@@ -113,12 +109,23 @@ class HTTPRUDPServer:
                     else:
                         response = self.build_http_response(404, "Not Found")
 
-                self.send_packet(response, addr, seq=seq+1, flags=ACK)
+                self.send_packet(response, addr, seq=session["expected_seq"], flags=ACK)
+                session["expected_seq"] += 1
+                self.sessions[addr] = session
                 continue
 
-            # If no session and no SYN, ignore packet
+            if session["state"] == "LAST_ACK":
+                if flags & ACK:
+                    print(f"[SERVER] Final ACK received from {addr}. Connection fully closed.")
+                    del self.sessions[addr]
+                    continue
+
             print(f"[SERVER] Ignoring packet from {addr} in state {session['state']}")
 
 if __name__ == "__main__":
-    server = HTTPRUDPServer()
-    server.serve_loop()
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+    server = HTTPRUDPServer(port=port)
+    try:
+        server.serve_loop()
+    except KeyboardInterrupt:
+        print("\n[SERVER] Server stopped manually.")
