@@ -3,9 +3,9 @@ from rudp_http_client import HTTPRUDPClient
 import threading
 
 BRIDGE_HOST = '127.0.0.1'
-BRIDGE_PORT = 8888  # Browser connects here
+BRIDGE_PORT = 8888  # Port to receive browser requests
 RUDP_SERVER_HOST = '127.0.0.1'
-RUDP_SERVER_PORT = 8080
+RUDP_SERVER_PORT = 8080  # Port used by your RUDP HTTP server
 
 def handle_browser_request(client_conn):
     try:
@@ -16,30 +16,29 @@ def handle_browser_request(client_conn):
             return
 
         print("[BRIDGE] Received request from browser")
+
+        # Parse the request line
         request_text = request_data.decode(errors='replace')
         request_line = request_text.splitlines()[0]
         method, path, _ = request_line.split()
-        
-        # Initialize RUDP client
-        rudp_client = HTTPRUDPClient(RUDP_SERVER_HOST, RUDP_SERVER_PORT)
-        rudp_client.handshake()
-        
-        # Send to RUDP server
-        rudp_client.send_packet(data=request_data, flags=0)
-        seq, flags, payload, valid, addr = rudp_client.recv_packet()
-        rudp_client.teardown()
 
-        # Send back to browser
+        # Send HTTP request using RUDP
+        rudp_client = HTTPRUDPClient(RUDP_SERVER_HOST, RUDP_SERVER_PORT)
+        payload, valid = rudp_client.send_http_request(method=method, path=path)
+
         if valid:
             client_conn.sendall(payload)
         else:
-            client_conn.sendall(b"HTTP/1.1 500 Internal Server Error\r\n\r\nCorrupted response")
+            client_conn.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+
     except Exception as e:
         print(f"[BRIDGE] Error: {e}")
-        client_conn.sendall(b"HTTP/1.1 500 Internal Server Error\r\n\r\nBridge Error")
+        try:
+            client_conn.sendall(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n")
+        except:
+            pass
     finally:
         client_conn.close()
-
 
 def start_bridge():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as bridge_socket:

@@ -70,13 +70,10 @@ class HTTPRUDPClient:
 
         print("[CLIENT] Teardown failed after retries.")
 
-
-
-
     def send_http_request(self, method="GET", path="/", headers=None, body=""):
         if not self.connected:
             if not self.handshake():
-                return
+                return None, False
 
         if headers is None:
             headers = {}
@@ -86,10 +83,9 @@ class HTTPRUDPClient:
         request_line = f"{method} {path} HTTP/1.0\r\n"
         headers_lines = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
         http_request = request_line + headers_lines + "\r\n" + body
-
-        # Send HTTP request
-        print(f"[CLIENT] Sending HTTP {method} request with retransmission")
         http_data = http_request.encode('utf-8')
+
+        print(f"[CLIENT] Sending HTTP {method} request with retransmission")
 
         for attempt in range(MAX_RETRIES):
             self.send_packet(data=http_data, flags=0)
@@ -98,16 +94,15 @@ class HTTPRUDPClient:
                 if valid:
                     response_text = payload.decode('utf-8', errors='replace')
                     print("[CLIENT] HTTP Response received:\n" + response_text)
-                    break
+                    self.teardown()
+                    return payload, True
                 else:
                     print(f"[CLIENT] Received corrupted HTTP response. Retrying...")
             except socket.timeout:
                 print(f"[CLIENT] Timeout waiting for response (attempt {attempt + 1})")
-        else:
-            print("[CLIENT] Failed to receive HTTP response after retries.")
-
 
         self.teardown()
+        return None, False
 
 if __name__ == "__main__":
     client = HTTPRUDPClient()
