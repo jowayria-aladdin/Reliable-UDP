@@ -7,6 +7,9 @@ BRIDGE_PORT = 8888  # Port to receive browser requests
 RUDP_SERVER_HOST = '127.0.0.1'
 RUDP_SERVER_PORT = 8080  # Port used by your RUDP HTTP server
 
+# Create a single shared HTTPRUDPClient instance for all requests
+rudp_client = HTTPRUDPClient(RUDP_SERVER_HOST, RUDP_SERVER_PORT)
+
 def handle_browser_request(client_conn):
     try:
         # Receive HTTP request from browser
@@ -22,8 +25,7 @@ def handle_browser_request(client_conn):
         request_line = request_text.splitlines()[0]
         method, path, _ = request_line.split()
 
-        # Send HTTP request using RUDP
-        rudp_client = HTTPRUDPClient(RUDP_SERVER_HOST, RUDP_SERVER_PORT)
+        # Send HTTP request using the shared RUDP client
         payload, valid = rudp_client.send_http_request(method=method, path=path)
 
         if valid:

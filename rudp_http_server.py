@@ -10,7 +10,10 @@ class HTTPRUDPServer:
         self.sessions = {}
 
     def send_packet(self, data, addr, seq=0, flags=0):
-        self.rudp.send(self.sock, data, addr, seq=seq, flags=flags)
+        try:
+            self.rudp.send(self.sock, data, addr, seq=seq, flags=flags)
+        except Exception as e:
+            print(f"[SERVER] Error sending packet to {addr}: {e}")
 
     def parse_http_request(self, data):
         try:
@@ -89,8 +92,8 @@ class HTTPRUDPServer:
                 # Check expected sequence number for regular data packets
                 if seq != session["expected_seq"]:
                     print(f"[SERVER] Unexpected SEQ {seq} from {addr}, expected {session['expected_seq']}")
-                    # Send ACK for the last valid seq (expected_seq is next expected, so ACK with expected_seq-1 might be better)
-                    self.send_packet(b"", addr, seq=session["expected_seq"]-1, flags=ACK)
+                    ack_seq = max(session["expected_seq"] - 1, 0)
+                    self.send_packet(b"", addr, seq=ack_seq, flags=ACK)
                     continue
 
                 # Process HTTP request if sequence number matches
@@ -128,7 +131,7 @@ class HTTPRUDPServer:
                 if flags & ACK:
                     print(f"[SERVER] Final ACK received from {addr}. Connection fully closed.")
                     del self.sessions[addr]
-                    return
+                    continue
 
             # If no session and no SYN, ignore packet
             print(f"[SERVER] Ignoring packet from {addr} in state {session['state']}")
@@ -139,4 +142,3 @@ if __name__ == "__main__":
         server.serve_loop()
     except KeyboardInterrupt:
         print("\n[SERVER] Server stopped manually.")
-

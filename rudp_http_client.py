@@ -2,7 +2,7 @@ import socket
 import time
 from rudp_socket import rudp_socket, SYN, ACK, FIN
 
-MAX_RETRIES = 5
+MAX_RETRIES = 10
 TIMEOUT = 2.0
 
 class HTTPRUDPClient:
